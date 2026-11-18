@@ -106,7 +106,7 @@ func TestTrackErrorLogsOmitQueries(t *testing.T) {
 	log.SetOutput(&out)
 
 	// Nothing listens on port 1, so the request fails with a *url.Error.
-	tr, err := New("http://127.0.0.1:1/matomo.php?token_auth=secret", log)
+	tr, err := New("http://user:password@127.0.0.1:1/matomo.php?token_auth=secret", log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,25 +116,29 @@ func TestTrackErrorLogsOmitQueries(t *testing.T) {
 	if !strings.Contains(logged, "ERROR") {
 		t.Fatalf("expected an error log, got %q", logged)
 	}
-	for _, leak := range []string{"secret", "private", "token"} {
+	for _, leak := range []string{"user", "password", "secret", "private", "token"} {
 		if strings.Contains(logged, leak) {
 			t.Fatalf("error log contains %q: %s", leak, logged)
 		}
 	}
 }
 
-func TestWithoutQuery(t *testing.T) {
+func TestRedactURL(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
-		"http://a/b?c=d":   "http://a/b",
-		"http://a/b#frag":  "http://a/b",
-		"http://a/b":       "http://a/b",
-		"http://a/b?c#d=e": "http://a/b",
+		"http://a/b?c=d":                 "http://a/b",
+		"http://a/b#frag":                "http://a/b",
+		"http://a/b":                     "http://a/b",
+		"http://a/b?c#d=e":               "http://a/b",
+		"http://a/b?":                    "http://a/b",
+		"https://user:pass@a:8443/b?c=d": "https://a:8443/b",
+		"https://user@a/b":               "https://a/b",
+		"http://[::1":                    "<invalid URL>",
 	}
 	for in, want := range tests {
-		if got := withoutQuery(in); got != want {
-			t.Fatalf("withoutQuery(%q) = %q; want %q", in, got, want)
+		if got := redactURL(in); got != want {
+			t.Fatalf("redactURL(%q) = %q; want %q", in, got, want)
 		}
 	}
 }

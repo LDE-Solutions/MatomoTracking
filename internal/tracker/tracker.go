@@ -110,7 +110,7 @@ func (t *Tracker) Track(view PageView, idSite int) {
 		if errors.As(err, &urlErr) {
 			err = urlErr.Err
 		}
-		t.log.Errorf("sending Matomo request to %s for %s: %v", withoutQuery(t.endpoint.String()), withoutQuery(view.url), err)
+		t.log.Errorf("sending Matomo request to %s for %s: %v", redactURL(t.endpoint.String()), redactURL(view.url), err)
 		return
 	}
 	defer resp.Body.Close()
@@ -118,17 +118,23 @@ func (t *Tracker) Track(view PageView, idSite int) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		t.log.Errorf("Matomo answered %s for %s (idSite %d)", resp.Status, withoutQuery(view.url), idSite)
+		t.log.Errorf("Matomo answered %s for %s (idSite %d)", resp.Status, redactURL(view.url), idSite)
 		return
 	}
 	t.log.Debugf("tracked %s (idSite %d): %s", view.url, idSite, resp.Status)
 }
 
-// withoutQuery strips the query from rawURL for error logs, as it may contain personal data or
-// tokens. Debug logs keep the full URL.
-func withoutQuery(rawURL string) string {
-	if i := strings.IndexAny(rawURL, "?#"); i >= 0 {
-		return rawURL[:i]
+// redactURL strips credentials, query and fragment from rawURL for error logs, as they may
+// contain passwords, personal data or tokens. Debug logs keep the full URL.
+func redactURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid URL>"
 	}
-	return rawURL
+	u.User = nil
+	u.RawQuery = ""
+	u.ForceQuery = false
+	u.Fragment = ""
+	u.RawFragment = ""
+	return u.String()
 }
