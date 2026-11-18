@@ -235,16 +235,61 @@ The configuration is validated when Traefik loads the middleware: `matomoURL` mu
 
 Step 1: **Load/import the plugin into traefik**
 
-1. Edit your Traefik static configuration file (e.g., traefik.yml or traefik.toml), and add the plugin's Github repository:
+This repository is a fork of [DIE-Bonn/MatomoTracking](https://github.com/DIE-Bonn/MatomoTracking). Its changes are not available through the Traefik plugin catalog, so load it as a local plugin from a custom Traefik image (option A). Option B loads the original plugin from the catalog instead.
 
-    Example: `traefik.yml`:
+**Option A: Custom Traefik image with this fork (recommended)**
+
+The [`Dockerfile`](Dockerfile) extends the official Traefik image with the plugin sources. Traefik loads them as a local plugin at startup; no plugin catalog or internet access is needed.
+
+1. Build the image, either from a local checkout or directly from GitHub. Pin the Traefik version you run and, for reproducible builds, a tag or commit of this repository:
+
+    ```bash
+    # From a local checkout
+    docker build -t traefik-matomo --build-arg TRAEFIK_VERSION=3.7 .
+
+    # Directly from GitHub (branch, tag or commit after '#')
+    docker build -t traefik-matomo --build-arg TRAEFIK_VERSION=3.7 \
+      https://github.com/LDE-Solutions/MatomoTracking.git#main
+    ```
+
+    Or let Docker Compose build it:
+
+    ```yaml
+    services:
+      traefik:
+        build:
+          context: https://github.com/LDE-Solutions/MatomoTracking.git#main
+          args:
+            TRAEFIK_VERSION: "3.7"
+        image: traefik-matomo
+    ```
+
+2. Declare the local plugin in your Traefik static configuration (e.g. `traefik.yml`). The `moduleName` must stay `github.com/DIE-Bonn/MatomoTracking`, as that is the module path in `go.mod` and the folder the image copies the sources to:
+
     ```yaml
     experimental:
-      plugins:
+      localPlugins:
         matomoTracking:
           moduleName: "github.com/DIE-Bonn/MatomoTracking"
-          version: "v1.1.0"
     ```
+
+    With CLI flags instead of a file: `--experimental.localPlugins.matomoTracking.moduleName=github.com/DIE-Bonn/MatomoTracking`.
+
+3. Run Traefik from the new image. To update the plugin, rebuild the image and recreate the container.
+
+The plugin name (`matomoTracking`) is the one you use in the dynamic configuration and in Docker labels.
+
+**Option B: Original plugin from the Traefik plugin catalog**
+
+Traefik downloads the original plugin of DIE-Bonn (without the changes of this fork, e.g. Docker label support):
+
+```yaml
+experimental:
+  plugins:
+    matomoTracking:
+      moduleName: "github.com/DIE-Bonn/MatomoTracking"
+      version: "v1.1.0"
+```
 **Ensure to use the current version tag.**
 
 Step 2: **Configure Dynamic Configuration**
@@ -315,9 +360,10 @@ Step 3: **Associate the middleware plugin to the entrypoint**
 
 Step 4: **Restart Traefik**
 
-1. Start or restart traefik to load the plugin and apply the new configuration
+1. Start or restart traefik to load the plugin and apply the new configuration. With the custom image (option A), rebuild it first when the plugin changed:
 
     ```bash
+    docker compose build traefik   # option A only
     docker compose down && docker compose up -d
     ```
 
