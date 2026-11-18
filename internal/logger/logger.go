@@ -2,6 +2,7 @@
 package logger
 
 import (
+	"io"
 	"log"
 	"os"
 )
@@ -22,6 +23,11 @@ func (l *Logger) Debugf(format string, args ...any) {
 	if l.debug {
 		l.out.Printf("DEBUG "+format, args...)
 	}
+}
+
+// SetOutput redirects the log output, e.g. in tests.
+func (l *Logger) SetOutput(w io.Writer) {
+	l.out.SetOutput(w)
 }
 
 // Errorf logs a failure.

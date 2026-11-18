@@ -105,7 +105,12 @@ func (t *Tracker) Track(view PageView, idSite int) {
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		t.log.Errorf("sending Matomo request for %s: %v", view.url, err)
+		// *url.Error repeats the full Matomo URL, which carries the page URL and possibly a token.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		t.log.Errorf("sending Matomo request to %s for %s: %v", withoutQuery(t.endpoint.String()), withoutQuery(view.url), err)
 		return
 	}
 	defer resp.Body.Close()
@@ -113,8 +118,17 @@ func (t *Tracker) Track(view PageView, idSite int) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		t.log.Errorf("Matomo answered %s for %s (idSite %d)", resp.Status, view.url, idSite)
+		t.log.Errorf("Matomo answered %s for %s (idSite %d)", resp.Status, withoutQuery(view.url), idSite)
 		return
 	}
 	t.log.Debugf("tracked %s (idSite %d): %s", view.url, idSite, resp.Status)
+}
+
+// withoutQuery strips the query from rawURL for error logs, as it may contain personal data or
+// tokens. Debug logs keep the full URL.
+func withoutQuery(rawURL string) string {
+	if i := strings.IndexAny(rawURL, "?#"); i >= 0 {
+		return rawURL[:i]
+	}
+	return rawURL
 }

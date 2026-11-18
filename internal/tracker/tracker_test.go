@@ -1,10 +1,12 @@
 package tracker
 
 import (
+	"bytes"
 	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/DIE-Bonn/MatomoTracking/internal/logger"
@@ -93,5 +95,46 @@ func TestTrackingURLKeepsEndpointQuery(t *testing.T) {
 	want := url.Values{"token": {"abc"}, "url": {"http://demo.localhost/a?b=c"}, "rec": {"1"}, "idsite": {"5"}}
 	if q := got.Query(); q.Encode() != want.Encode() {
 		t.Fatalf("query = %v; want %v", q, want)
+	}
+}
+
+func TestTrackErrorLogsOmitQueries(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	log := logger.New("test", false)
+	log.SetOutput(&out)
+
+	// Nothing listens on port 1, so the request fails with a *url.Error.
+	tr, err := New("http://127.0.0.1:1/matomo.php?token_auth=secret", log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.Track(PageView{url: "http://demo.localhost/reset?token=private"}, 1)
+
+	logged := out.String()
+	if !strings.Contains(logged, "ERROR") {
+		t.Fatalf("expected an error log, got %q", logged)
+	}
+	for _, leak := range []string{"secret", "private", "token"} {
+		if strings.Contains(logged, leak) {
+			t.Fatalf("error log contains %q: %s", leak, logged)
+		}
+	}
+}
+
+func TestWithoutQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"http://a/b?c=d":   "http://a/b",
+		"http://a/b#frag":  "http://a/b",
+		"http://a/b":       "http://a/b",
+		"http://a/b?c#d=e": "http://a/b",
+	}
+	for in, want := range tests {
+		if got := withoutQuery(in); got != want {
+			t.Fatalf("withoutQuery(%q) = %q; want %q", in, got, want)
+		}
 	}
 }
