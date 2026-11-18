@@ -8,6 +8,7 @@ Summary
 - Backward compatible: if no conditions are set, behavior stays unchanged.
 
 Configuration schema
+- Config.responseConditions (top-level rules, e.g. for Docker labels)
 - DomainConfig.responseConditions
 - PathConfig.responseConditions
 - ResponseConditions:
@@ -47,6 +48,6 @@ Notes and limitations
 - Tracking is sent after response completion; long-running responses delay the send.
 
 Testing
-- Unit tests: `response_conditions_test.go`, run with `go test -v .`.
+- Unit tests: `internal/rules/rules_test.go`, run with `go test -v ./internal/...`.
 - Integration tests: `tests/integration/response_conditions_test.go`, run with `go test -v ./tests/integration` (requires local Matomo).
 - All tests: `go test -v ./...` (requires local Matomo).

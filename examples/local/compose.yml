@@ -20,6 +20,24 @@ services:
       - "traefik.http.routers.who.rule=Host(`demo.localhost`)"
       - "traefik.http.routers.who.entrypoints=web"
 
+  # Tracked by its own middleware, configured through labels (see docs/docker-labels.md).
+  # The entry point middleware ignores this host, as it is not listed in its domains.
+  whoami-labels:
+    image: traefik/whoami:v1.11
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.who-labels.loadbalancer.server.port=80"
+      - "traefik.http.routers.who-labels.rule=Host(`labels.localhost`)"
+      - "traefik.http.routers.who-labels.entrypoints=web"
+      - "traefik.http.routers.who-labels.middlewares=who-labels-matomo"
+      - "traefik.http.middlewares.who-labels-matomo.plugin.matomoTracking.matomoURL=http://matomo-local/matomo.php"
+      - "traefik.http.middlewares.who-labels-matomo.plugin.matomoTracking.debug=true"
+      - "traefik.http.middlewares.who-labels-matomo.plugin.matomoTracking.trackingEnabled=true"
+      - "traefik.http.middlewares.who-labels-matomo.plugin.matomoTracking.idSite=1"
+      - "traefik.http.middlewares.who-labels-matomo.plugin.matomoTracking.trackedMethods=GET"
+      - "traefik.http.middlewares.who-labels-matomo.plugin.matomoTracking.excludedPaths=\\.\\w{1,5}(\\?.+)?$$"
+      - "traefik.http.middlewares.who-labels-matomo.plugin.matomoTracking.pathOverrides./health.trackingEnabled=false"
+
   matomo-local-db:
     image: mariadb:10.11
     container_name: matomo-local-db

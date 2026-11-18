@@ -66,6 +66,21 @@ The main purpose of this plugin is to enhance the accuracy of visitor tracking b
                 trackingEnabled: false
                 idSite: 456
             ```
+    - `Debug`:
+        - Type: **bool**
+        - Description: Logs every tracking decision (tracked, skipped and why) to the Traefik log. Errors are always logged.
+        - Example: `true`
+    - Top-level tracking rules (`TrackingEnabled`, `IdSite`, `TrackedMethods`, `ExcludedPaths`, `IncludedPaths`, `PathOverrides`, `ResponseConditions`):
+        - Description: The same fields as in `DomainConfig`, set directly on the plugin. They apply to every host **without** an entry in `domains`; an entry in `domains` always wins, even if it disables tracking. Without top-level `trackingEnabled: true`, unlisted hosts are not tracked (as before).
+        This is mainly meant for middlewares attached to single routers, e.g. defined through Docker labels, where the `domains` map cannot be used. See [docs/docker-labels.md](docs/docker-labels.md).
+        - Example:
+            ```yaml
+            matomoURL: "https://matomo.example.com/matomo.php"
+            trackingEnabled: true
+            idSite: 3
+            trackedMethods:
+              - "GET"
+            ```
 
 2. `DomainConfig` Struct
 
@@ -112,7 +127,7 @@ The main purpose of this plugin is to enhance the accuracy of visitor tracking b
     - `PathOverrides`:
         - **Type**: `map[string]PathConfig`
         - **Description**: A map of path-specific configuration overrides that apply only to requests matching those paths. Each key is a path prefix (e.g., `/api`, `/special`) and its corresponding value is a `PathConfig` block. This feature allows more granular control over tracking behavior within a domain.
-        Path overrides support the same fields as the domain-level configuration: `trackingEnabled`, `idSite`, `trackedMethods`, `excludedPaths`, and `includedPaths`. If a path override is defined, it will **override** the corresponding settings from the parent domain **only for requests matching that path**. A path without its own `trackedMethods` inherits the domain's method list. A path with its own list replaces that list completely, including when it is explicitly empty.
+        Path overrides support the same fields as the domain-level configuration: `trackingEnabled`, `idSite`, `trackedMethods`, `excludedPaths`, `includedPaths`, and `responseConditions`. Overrides are always merged onto the domain configuration, not onto each other. A path override cannot enable tracking for a domain with `trackingEnabled: false`. If a path override is defined, it will **override** the corresponding settings from the parent domain **only for requests matching that path**. A path without its own `trackedMethods` inherits the domain's method list. A path with its own list replaces that list completely, including when it is explicitly empty.
         Matching is done using **prefix matching with boundary awareness**. This means:
           - `/test` matches `/test` and `/test/something`
           - `/test` does not match `/test2` or `/testing`
@@ -189,51 +204,32 @@ matomo-tracking:
         - `idSite: 456`: Uses `456` as the Matomo site ID.
 
 
-## Code Documentation
+## Project Structure
 
-### ServeHTTP Method
+Traefik requires `Config`, `CreateConfig` and `New` in the root package of a plugin. The root package only holds this entry point; the implementation lives in packages under `internal/`:
 
-Main logic of the middleware:
+| Path | Responsibility |
+| --- | --- |
+| `matomotracking.go` | Plugin entry point for Traefik (`Config`, `CreateConfig`, `New`). |
+| `internal/config` | Configuration types and merging of path overrides into domain settings. |
+| `internal/rules` | Compiles the configuration once at startup (regular expressions, path overrides sorted by specificity), resolves the rules for a host and path, and decides whether a request is tracked. |
+| `internal/tracker` | Captures the page view of a request and sends it to the Matomo tracking API. |
+| `internal/middleware` | The `http.Handler`: forwards the request, records the response status and triggers tracking. |
+| `internal/logger` | Log output with the middleware name; debug lines only with `debug: true`. |
 
-1. Extracts the requested domain from the host.
-2. Checks if tracking is enabled for the domain.
-3. If `pathOverrides` are defined, the middleware:
-    - Searches for the most specific matching path override (using longest prefix match with boundary awareness).
-    - Merges the override settings with the domain-level config using `mergeConfigs`.
-4. Forwards the original request to the next handler in the chain and captures the response status and headers.
-5. Uses the resulting (effective) config to evaluate `trackedMethods`, `excludedPaths`, `includedPaths`, and response conditions.
-6. If tracking is enabled, the method is allowed, the path is not excluded, and response conditions match, sends a tracking request to Matomo asynchronously. This separate tracking request always uses GET, regardless of the original client method.
+### Request Processing
 
-### mergeConfigs Function
+1. Determine the host (lower-case, without port) and look up its rules: the entry in `domains`, otherwise the top-level rules.
+2. If tracking is disabled for the host, forward the request untouched.
+3. Pick the most specific path override (longest prefix match with boundary awareness).
+4. Check `trackingEnabled`, `trackedMethods`, `excludedPaths` and `includedPaths`. If the request does not qualify, forward it untouched.
+5. Capture the page view (URL with lower-cased path, `User-Agent`, `X-Forwarded-For` chain), so later handlers in the chain cannot change what is tracked.
+6. Forward the request and record the final status code and headers.
+7. If the response conditions match, send the tracking request to Matomo asynchronously. It always uses GET, regardless of the original client method.
 
-Merges a domain-level configuration with a path-level override.
+### Configuration Errors
 
-- Any field explicitly set in the path override replaces the value from the base domain config.
-- This function ensures that only the overridden fields change, while other inherited values remain intact.
-
-### sendTrackingRequest Method
-
-Sends a tracking request to Matomo asynchronously:
-
-1. Constructs the tracking URL with the appropriate query parameters.
-2. Creates an HTTP GET request to Matomo.
-3. Sets the `User-Agent` and `X-Forwarded-For` headers to identify the client.
-4. Sends the request using a custom HTTP client.
-5. Logs the response status.
-
-### isPathExcluded Function
-
-Checks if a given path matches any of the exclusion patterns:
-
-1. Iterates through all exclusion regex patterns provided in the configuration in `excludedPaths`.
-2. For each pattern:
-    - Attempts to match the pattern against the given path.
-    - Logs any errors encountered while processing the regex.
-    - If a match is found, sets a flag indicating the path is excluded and stops further checks.
-3. If no match is found in the exclusion patterns, returns `false` immediately, indicating the path is not excluded
-4. Proceeds to check against inclusion patterns if an exclusion match is found.
-5. If a match is found in `includedPaths`, the function returns `false`, indicating that the path should not be excluded, as it is explicitly included.
-
+The configuration is validated when Traefik loads the middleware: `matomoURL` must be an absolute URL, and every pattern in `excludedPaths`/`includedPaths` must be a valid regular expression. An invalid configuration is logged as an error and the middleware then forwards all requests **without tracking**. The sites stay reachable instead of Traefik disabling every router that uses the middleware.
 
 ## Setup instructions
 
@@ -289,6 +285,17 @@ Step 2: **Configure Dynamic Configuration**
 
     - This configuration defines the global rules for the `matomo-tracking` middleware, consisting of domain names with their individual tracking configuration.
 
+    Alternatively, define the middleware per container with Docker labels and attach it to the container's router, see [docs/docker-labels.md](docs/docker-labels.md):
+
+    ```yaml
+    labels:
+      - "traefik.http.routers.shop.middlewares=shop-matomo"
+      - "traefik.http.middlewares.shop-matomo.plugin.matomoTracking.matomoURL=https://matomo.example.com/matomo.php"
+      - "traefik.http.middlewares.shop-matomo.plugin.matomoTracking.trackingEnabled=true"
+      - "traefik.http.middlewares.shop-matomo.plugin.matomoTracking.idSite=3"
+    ```
+    In that case, skip step 3 for this container.
+
 Step 3: **Associate the middleware plugin to the entrypoint**
 
 1. Edit your Traefik static configuration file `traefik.yml`:
@@ -316,13 +323,13 @@ Step 4: **Restart Traefik**
 
 ## Tests
 
-Unit tests live alongside the source files (`main_test.go` and `response_conditions_test.go`). This follows Go's package structure and lets them test private functions without exposing them as public API.
+Unit tests live alongside the source files in each package (e.g. `internal/rules/rules_test.go`). This follows Go's package structure and lets them test private functions without exposing them as public API.
 
 Integration tests live in `tests/integration/` and use the plugin's public API. They require a running Matomo instance with site ID `1`. The default URL is `http://localhost:8082`; set `MATOMO_URL` to use a different instance.
 
 ```bash
 # Unit tests only (no Matomo required)
-go test -v .
+go test -v . ./internal/...
 
 # Integration tests only (requires Matomo)
 go test -v ./tests/integration
@@ -336,3 +343,4 @@ The same commands are available as VS Code tasks: `go test (unit)`, `go test (in
 ## Further Documentation
 
 - Response-based tracking conditions: [docs/response-conditions.md](docs/response-conditions.md)
+- Configuration via Docker labels: [docs/docker-labels.md](docs/docker-labels.md)
