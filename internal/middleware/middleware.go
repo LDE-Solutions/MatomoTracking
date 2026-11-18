@@ -65,12 +65,17 @@ func (m *Middleware) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	rec := newStatusRecorder(rw)
-	m.next.ServeHTTP(rec, req)
-
-	if !r.TracksResponse(rec.status, rec.Header()) {
-		m.log.Debugf("%s %s%s: skipped: response conditions not met (status %d)", req.Method, host, req.URL.Path, rec.status)
-		return
+	if r.InspectsResponse() {
+		rec := newStatusRecorder(rw)
+		m.next.ServeHTTP(rec, req)
+		if !r.TracksResponse(rec.status, rec.Header()) {
+			m.log.Debugf("%s %s%s: skipped: response conditions not met (status %d)", req.Method, host, req.URL.Path, rec.status)
+			return
+		}
+	} else {
+		// Pass the original writer on: Traefik runs the plugin in the Yaegi interpreter, which
+		// hides a wrapper's Flush from Traefik and would stall streamed responses.
+		m.next.ServeHTTP(rw, req)
 	}
 
 	m.log.Debugf("%s %s%s: tracking (override %q, idSite %d)", req.Method, host, req.URL.Path, prefix, r.IdSite)

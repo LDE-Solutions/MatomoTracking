@@ -230,3 +230,34 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestServeHTTPWrapsWriterOnlyForResponseConditions(t *testing.T) {
+	tests := []struct {
+		name     string
+		rc       *config.ResponseConditions
+		wantWrap bool
+	}{
+		{"no conditions", nil, false},
+		{"empty conditions", &config.ResponseConditions{}, false},
+		{"status conditions", &config.ResponseConditions{TrackOnStatusCodes: []int{200}}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{MatomoURL: "http://127.0.0.1:1/matomo.php", TrackingEnabled: true, IdSite: 1, ResponseConditions: tt.rc}
+			recorder := httptest.NewRecorder()
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if _, wrapped := w.(*statusRecorder); wrapped != tt.wantWrap {
+					t.Fatalf("writer wrapped = %v; want %v", wrapped, tt.wantWrap)
+				}
+			})
+			handler, err := New(next, cfg, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "http://demo.localhost/", nil)
+			req.RemoteAddr = "203.0.113.9:54321"
+			handler.ServeHTTP(recorder, req)
+		})
+	}
+}

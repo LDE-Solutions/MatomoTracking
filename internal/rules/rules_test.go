@@ -216,6 +216,27 @@ func TestCompileRejectsInvalidDomain(t *testing.T) {
 	}
 }
 
+func TestInspectsResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		rc   *config.ResponseConditions
+		want bool
+	}{
+		{"no conditions", nil, false},
+		{"empty conditions", &config.ResponseConditions{}, false},
+		{"status codes", &config.ResponseConditions{TrackOnStatusCodes: []int{200}}, true},
+		{"headers", &config.ResponseConditions{TrackWhenHeaders: map[string]string{"X-App": "web"}}, true},
+	}
+
+	for _, tt := range tests {
+		if got := (Rules{responseConditions: tt.rc}).InspectsResponse(); got != tt.want {
+			t.Fatalf("%s: InspectsResponse() = %v; want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestMatchesResponseConditions_Nil(t *testing.T) {
 	t.Parallel()
 	h := http.Header{}

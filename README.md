@@ -224,8 +224,8 @@ Traefik requires `Config`, `CreateConfig` and `New` in the root package of a plu
 3. Pick the most specific path override (longest prefix match with boundary awareness).
 4. Check `trackingEnabled`, `trackedMethods`, `excludedPaths` and `includedPaths`. If the request does not qualify, forward it untouched.
 5. Capture the page view (URL with lower-cased path, `User-Agent`, `X-Forwarded-For` chain), so later handlers in the chain cannot change what is tracked.
-6. Forward the request and record the final status code and headers.
-7. If the response conditions match, send the tracking request to Matomo asynchronously. It always uses GET, regardless of the original client method.
+6. Forward the request. Only if response conditions are configured, the response writer is wrapped to record the final status code (see [docs/response-conditions.md](docs/response-conditions.md) for the effect on streamed responses); otherwise Traefik gets the original writer, so streaming and WebSockets behave as without the plugin.
+7. If the response conditions match (or none are set), send the tracking request to Matomo asynchronously. It always uses GET, regardless of the original client method.
 
 ### Configuration Errors
 

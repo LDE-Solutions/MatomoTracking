@@ -142,6 +142,12 @@ func (r Rules) TracksRequest(method, path string) bool {
 		!isPathExcluded(path, r.excludedPaths, r.includedPaths)
 }
 
+// InspectsResponse reports whether the decision depends on the response status or headers.
+func (r Rules) InspectsResponse() bool {
+	rc := r.responseConditions
+	return rc != nil && (len(rc.TrackOnStatusCodes) > 0 || len(rc.TrackWhenHeaders) > 0)
+}
+
 // TracksResponse reports whether the final response qualifies for tracking.
 func (r Rules) TracksResponse(status int, hdr http.Header) bool {
 	return matchesResponseConditions(status, hdr, r.responseConditions)

@@ -46,6 +46,8 @@ Notes and limitations
 - Multi-value headers pass if any value equals the configured one.
 - Header names are case-insensitive; values match exactly (no regex).
 - Tracking is sent after response completion; long-running responses delay the send.
+- WebSocket upgrades are evaluated with status `101`.
+- Streamed responses (e.g. server-sent events) are buffered on routes with response conditions: to read the status, the middleware wraps the response writer, and Traefik's plugin interpreter (Yaegi) hides the wrapper's `Flush` from Traefik. WebSockets are not affected. Without response conditions the writer is passed on unchanged and streaming works normally. Exclude streaming endpoints from tracking (`excludedPaths`, or a path override with `trackingEnabled: false` or an empty `responseConditions: {}`) if they must stream.
 
 Testing
 - Unit tests: `internal/rules/rules_test.go`, run with `go test -v ./internal/...`.
